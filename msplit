@@ -1,0 +1,125 @@
+#! /usr/bin/env ruby
+# coding: utf-8
+# Splits mbox files into smaller mbox files.
+
+require "optparse"
+require "keybreak"
+
+
+class MSplit
+
+  DEFAULT_NUMBER_IN_FILE = 10
+  
+  def initialize()
+    @number_in_file = DEFAULT_NUMBER_IN_FILE
+    @is_dry_run = false
+  end
+
+  def opt_parse(argv)
+    opts = {}
+    
+    OptionParser.new do |opt|
+      begin
+        opt.version = '0.1.0'
+        opt.banner += " MBOX_FILE [MBOX_FILE...]"
+        opt.separator("\nOptions:")
+        
+        opt.on('-c=NUM',
+          "Number of emails in a splitted file (#{DEFAULT_NUMBER_IN_FILE})") {|v| opts[:c] = v}
+        
+        opt.on('-n',
+          "Dry-run (does not save splitted files)") {|v| opts[:n] = v}
+        
+        opt.parse!(ARGV)
+      rescue => e
+        $stderr.puts "ERROR: #{e}.\n#{opt}"
+        exit 1
+      end
+    end
+    
+    return opts
+  end
+  
+  def get_number_in_file(c)
+    if c.nil? || c.empty?
+      return DEFAULT_NUMBER_IN_FILE
+    else
+      return c.to_i
+    end
+  end
+  
+  
+  def save_splitted_file(big_file, file_count, file_text)
+    suffix = "%03d" % file_count
+    small_file = "#{big_file}_#{suffix}"
+    puts small_file
+    if !@is_dry_run
+      File.write(small_file, file_text)
+    end
+  end
+  
+  def save?(mail_count)
+    return mail_count == @number_in_file
+  end
+  
+  def split(big_file)
+    is_finished = false
+    file_count = 0
+    file_text = ""
+    mail_count = 0
+    mail_text = ""
+    
+    mc = Keybreak::Controller.new
+    mc.on(:detection) do |line|
+      line.start_with?("From ")
+    end
+    
+    mc.on(:keystart) do |line|      
+      mail_count += 1
+      mail_text = ""
+    end
+    
+    mc.on(:keyend) do |line|
+      if !mail_text.empty?
+        file_text += mail_text
+      end
+      
+      if !file_text.empty? && (save?(mail_count) || is_finished)
+        file_count += 1
+        save_splitted_file(big_file, file_count, file_text)
+        mail_count = 0
+        file_text = ""
+      end
+    end
+    
+    mc.execute do
+      File.open(big_file).each_line do |line|
+        mc.feed(line)
+        mail_text += line
+      end
+      is_finished = true
+    end
+  end
+  
+  def main(argv)
+    opts = opt_parse(argv)
+    @number_in_file = get_number_in_file(opts[:c])
+    @is_dry_run = opts[:n]
+    
+    argv.each do |big_file|
+      split(big_file)
+    end
+    
+  end # main
+
+end # class
+
+
+################################
+
+
+MSplit.new.main(ARGV)
+
+exit 0
+
+# EOF
